@@ -12,16 +12,15 @@ export function parseAmount(str) {
   return minor;
 }
 
-/** Format minor units for display: 123456 -> "1 234,56" (pl) / "1,234.56" (en). */
+/** Format minor units for display: 123456 -> "1234,56" (pl) / "1234.56" (en).
+ *  No thousands separator by design — only the locale decimal separator. */
 export function formatAmount(minor, locale = 'pl') {
   const sign = minor < 0 ? '−' : '';
   const abs = Math.abs(minor);
   const whole = Math.floor(abs / 100).toString();
   const frac = (abs % 100).toString().padStart(2, '0');
   const sep = locale === 'pl' ? ',' : '.';
-  const thou = locale === 'pl' ? '\u00A0' : ','; // NBSP thousands sep (pl)
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, thou);
-  return `${sign}${grouped}${sep}${frac}`;
+  return `${sign}${whole}${sep}${frac}`;
 }
 
 /** Split `total` into n parts differing by at most 1, summing exactly to total. */

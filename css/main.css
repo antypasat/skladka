@@ -804,9 +804,10 @@ input.k-name:focus { border-bottom-color: var(--gold); box-shadow: none; }
   font-weight: 700;
 }
 .among-name { font-weight: 600; font-size: 0.92rem; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.among-w { width: 3.6em; padding: 0.25em 0.4em; text-align: center; }
-.among-x { width: 5.5em; padding: 0.25em 0.4em; text-align: right; font-family: var(--font-mono); font-size: 0.88rem; }
-.qa-mode-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+input.among-w { width: 4.4em; padding: 0.25em 0.4em; text-align: center; }
+input.among-x { width: 7em; padding: 0.25em 0.4em; text-align: right; font-family: var(--font-mono); font-size: 0.88rem; }
+.qa-among { display: grid; gap: 0.75rem; justify-items: start; }
+.qa-among .hint { margin-top: 0; }
 .qa-date input { width: auto; }
 .qa-actions {
   display: flex;

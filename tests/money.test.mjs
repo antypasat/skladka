@@ -14,8 +14,8 @@ assert.equal(parseAmount(''), null);
 
 // formatAmount
 assert.equal(formatAmount(1250, 'pl'), '12,50');
-assert.equal(formatAmount(123456, 'pl'), '1\u00A0234,56');
-assert.equal(formatAmount(123456, 'en'), '1,234.56');
+assert.equal(formatAmount(123456, 'pl'), '1234,56');
+assert.equal(formatAmount(123456, 'en'), '1234.56');
 assert.equal(formatAmount(-500, 'pl'), '−5,00');
 
 // splitEqual: exact sums, max 1 grosz spread

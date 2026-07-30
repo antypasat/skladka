@@ -50,7 +50,7 @@ function fmtMoney(minor, cur, signed = false) {
   const sign = signed ? (minor > 0 ? '+' : minor < 0 ? '−' : '') : (minor < 0 ? '−' : '');
   return c.suffix ? `${sign}${n} ${c.sym}` : `${sign}${c.sym}${n}`;
 }
-const fmtRate = (r) => String(r).replace('.', ',');
+const fmtRate = (r) => String(r).replace('.', db.lang === 'pl' ? ',' : '.');
 
 /** Parse a user-typed FX rate ("4,3078"). */
 function parseRate(s) {
@@ -532,18 +532,16 @@ function renderKitty(kitty) {
           <div class="qa-extra" id="qa-extra" hidden>
             <fieldset class="qa-among">
               <legend class="lbl">${esc(t('qa_among'))}</legend>
-              <div id="qa-among-list" class="among-list"></div>
-            </fieldset>
-            <div class="qa-mode-row">
               <span class="seg" role="group" aria-label="${esc(t('qa_among'))}">
                 <button type="button" class="seg-btn" data-mode="equal" aria-pressed="true">${esc(t('qa_mode_equal'))}</button><button type="button" class="seg-btn" data-mode="weights" aria-pressed="false">${esc(t('qa_mode_weights'))}</button><button type="button" class="seg-btn" data-mode="exact" aria-pressed="false">${esc(t('qa_mode_exact'))}</button>
               </span>
-              <label class="qa-field qa-date">
-                <span class="lbl">${esc(t('qa_date'))}</span>
-                <input type="date" id="qa-date" />
-              </label>
-            </div>
-            <p class="hint" id="qa-hint" hidden></p>
+              <div id="qa-among-list" class="among-list"></div>
+              <p class="hint" id="qa-hint" hidden></p>
+            </fieldset>
+            <label class="qa-field qa-date">
+              <span class="lbl">${esc(t('qa_date'))}</span>
+              <input type="date" id="qa-date" />
+            </label>
           </div>
           <div class="qa-actions">
             <button type="button" class="linklike" id="qa-more" aria-expanded="false">${esc(t('qa_more'))}</button>
@@ -624,6 +622,16 @@ function renderKitty(kitty) {
       updateApprox();
     }
   };
+  // typed "." or "," both accepted — normalized to the locale separator on blur
+  const normalizeAmount = (el) => {
+    const v = parseAmount(el.value);
+    if (v != null) el.value = formatAmount(v, db.lang);
+  };
+  qa.amount.addEventListener('change', () => normalizeAmount(qa.amount));
+  qa.rate.addEventListener('change', () => {
+    const r = parseRate(qa.rate.value);
+    if (r) qa.rate.value = fmtRate(r);
+  });
   qa.cur.addEventListener('change', () => { qa.rate.value = ''; syncCur(); });
   qa.rate.addEventListener('input', updateApprox);
   qa.amount.addEventListener('input', () => { if (!qa.rateRow.hidden) updateApprox(); });
@@ -655,7 +663,15 @@ function renderKitty(kitty) {
   function syncModeInputs() {
     qa.amongList.querySelectorAll('.among-item').forEach((row) => {
       row.querySelector('.among-w').hidden = qa.mode !== 'weights';
-      row.querySelector('.among-x').hidden = qa.mode !== 'exact';
+      const x = row.querySelector('.among-x');
+      x.hidden = qa.mode !== 'exact';
+      if (!x.dataset.norm) {
+        x.dataset.norm = '1';
+        x.addEventListener('change', () => {
+          const v = parseAmount(x.value);
+          if (v != null) x.value = formatAmount(v, db.lang);
+        });
+      }
     });
     qa.hint.hidden = qa.mode !== 'weights';
     if (qa.mode === 'weights') qa.hint.textContent = t('qa_weights_hint');
@@ -912,6 +928,15 @@ function openEditor(kitty, id, itemEl) {
   ed.querySelector('.ed-cancel').addEventListener('click', () => { ed.remove(); itemEl.classList.remove('editing'); });
   const edCur = ed.querySelector('.ed-cur');
   const edRate = ed.querySelector('.ed-rate');
+  const edAmount = ed.querySelector('.ed-amount');
+  edAmount.addEventListener('change', () => {
+    const v = parseAmount(edAmount.value);
+    if (v != null) edAmount.value = formatAmount(v, db.lang);
+  });
+  edRate.addEventListener('change', () => {
+    const r = parseRate(edRate.value);
+    if (r) edRate.value = fmtRate(r);
+  });
   const edRateRow = ed.querySelector('.ed-rate-row');
   edCur.addEventListener('change', () => {
     const foreign = edCur.value !== kitty.currency;
