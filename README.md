@@ -12,8 +12,10 @@
 
 - Create a pot, add people, toss in expenses — no accounts, nothing installed
 - Splits: even, weighted, or exact amounts — always grosz-exact (integer minor units, largest-remainder rounding)
+- **Multi-currency expenses** — settle in one currency (PLN/EUR/USD/GBP/CZK/CHF) while paying in any of them; each expense carries its own FX rate, frozen at entry so shared links settle identically everywhere. One click fetches the ECB reference rate **for the expense date** (weekends fall back to the last fix), or type your own — the public API only ever sees a currency code and a date
+- **Per-person timeline** — filter the receipt by any participant: what they paid, their share of every expense, and their running balance, day by day
 - Minimal settlement: at most *n − 1* transfers via greedy max-debtor → max-creditor matching
-- **Serverless sharing** — the entire pot is deflate-compressed into the URL fragment (`CompressionStream`), so a link *is* the data; nothing ever touches a server
+- **Serverless sharing** — the entire pot is deflate-compressed into the URL fragment (`CompressionStream`), so a link *is* the data; old links keep working (versioned format)
 - Polish & English, category auto-detection, per-day receipt grouping, undo, print-friendly settlement
 
 ## How it's built

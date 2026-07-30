@@ -9,11 +9,30 @@ import { STR, plural } from './i18n.js';
 const LS_KEY = 'skladka.v1';
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/* currencies: settlement per kitty, any of these per expense */
+const CURS = {
+  PLN: { sym: 'zł', suffix: true },
+  EUR: { sym: '€', suffix: true },
+  USD: { sym: '$', suffix: false },
+  GBP: { sym: '£', suffix: false },
+  CZK: { sym: 'Kč', suffix: true },
+  CHF: { sym: 'CHF', suffix: true },
+};
+const SYM2CODE = { 'zł': 'PLN', '€': 'EUR', '$': 'USD', '£': 'GBP' };
+
 const db = load();
 function load() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const d = JSON.parse(raw);
+      // pre-multicurrency kitties stored the symbol — migrate to ISO code
+      Object.values(d.kitties ?? {}).forEach((k) => {
+        if (SYM2CODE[k.currency]) k.currency = SYM2CODE[k.currency];
+        if (!CURS[k.currency]) k.currency = 'PLN';
+      });
+      return d;
+    }
   } catch { /* fresh start */ }
   return { kitties: {}, lang: 'pl' };
 }
@@ -25,11 +44,57 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const t = (key) => STR[db.lang][key] ?? STR.pl[key] ?? key;
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const CURRENCIES = ['zł', '€', '$', '£'];
 function fmtMoney(minor, cur, signed = false) {
+  const c = CURS[cur] ?? CURS.PLN;
   const n = formatAmount(Math.abs(minor), db.lang);
   const sign = signed ? (minor > 0 ? '+' : minor < 0 ? '−' : '') : (minor < 0 ? '−' : '');
-  return cur === '$' || cur === '£' ? `${sign}${cur}${n}` : `${sign}${n} ${cur}`;
+  return c.suffix ? `${sign}${n} ${c.sym}` : `${sign}${c.sym}${n}`;
+}
+const fmtRate = (r) => String(r).replace('.', ',');
+
+/** Parse a user-typed FX rate ("4,3078"). */
+function parseRate(s) {
+  const v = parseFloat(String(s).trim().replace(/\s/g, '').replace(',', '.'));
+  return Number.isFinite(v) && v > 0 && v < 100000 ? Math.round(v * 1e6) / 1e6 : null;
+}
+
+/** ECB reference rate for a date (weekends fall back to the previous fix). */
+async function fetchRate(from, to, date) {
+  try {
+    const res = await fetch(`https://api.frankfurter.dev/v1/${date}?from=${from}&to=${to}`);
+    if (!res.ok) return null;
+    const j = await res.json();
+    const rate = j?.rates?.[to];
+    return rate ? { rate: Math.round(rate * 1e6) / 1e6, date: j.date } : null;
+  } catch { return null; }
+}
+
+/**
+ * Convert an expense into the kitty's settlement currency.
+ * The rate is frozen on the expense, so shared links settle identically everywhere.
+ */
+function settleExpense(e, kitty) {
+  if (!e.cur || e.cur === kitty.currency) return e;
+  const amount = Math.round(e.amount * e.rate);
+  let values = e.values;
+  if (e.mode === 'exact' && values) {
+    values = values.map((v) => Math.round(v * e.rate));
+    const drift = amount - values.reduce((a, b) => a + b, 0);
+    if (values.length) values[0] += drift; // exact split keeps summing exactly after conversion
+  }
+  return { ...e, amount, values };
+}
+const settled = (kitty) => kitty.expenses.map((e) => settleExpense(e, kitty));
+
+/** One person's settlement-currency share of one expense. */
+function shareOf(e, kitty, personId) {
+  const s = settleExpense(e, kitty);
+  const among = s.among.filter((id) => kitty.people.some((p) => p.id === id));
+  const i = among.indexOf(personId);
+  if (i < 0) return 0;
+  if (s.mode === 'weights') return splitWeights(s.amount, s.values.slice(0, among.length))[i] ?? 0;
+  if (s.mode === 'exact') return s.values[i] ?? 0;
+  return splitEqual(s.amount, among.length)[i] ?? 0;
 }
 
 /* ───────────────────────── people: coins & colors ───────────────────────── */
@@ -75,10 +140,11 @@ const CAT_ICONS = {
 
 async function encodeShare(kitty) {
   const compact = {
-    v: 1, id: kitty.id, n: kitty.name, c: kitty.currency,
+    v: 2, id: kitty.id, n: kitty.name, c: kitty.currency,
     p: kitty.people.map((p) => [p.id, p.name]),
-    e: kitty.expenses.map((e) => [e.id, e.title, e.amount, e.paidBy, e.among, e.mode, e.values ?? null, e.cat, e.ts]),
+    e: kitty.expenses.map((e) => [e.id, e.title, e.amount, e.paidBy, e.among, e.mode, e.values ?? null, e.cat, e.ts, e.cur ?? null, e.rate ?? null]),
     m: kitty.paid ?? {},
+    r: kitty.rates ?? {},
   };
   const json = JSON.stringify(compact);
   const bytes = new TextEncoder().encode(json);
@@ -108,15 +174,18 @@ async function decodeShare(str) {
     json = new TextDecoder().decode(bytes);
   }
   const c = JSON.parse(json);
-  if (c.v !== 1 || !c.id || !Array.isArray(c.p)) throw new Error('bad payload');
+  if ((c.v !== 1 && c.v !== 2) || !c.id || !Array.isArray(c.p)) throw new Error('bad payload');
+  const currency = c.v === 1 ? (SYM2CODE[c.c] ?? 'PLN') : (CURS[c.c] ? c.c : 'PLN');
   return {
-    id: c.id, name: String(c.n).slice(0, 80), currency: CURRENCIES.includes(c.c) ? c.c : 'zł',
+    id: c.id, name: String(c.n).slice(0, 80), currency,
     people: c.p.map(([id, name]) => ({ id: String(id), name: String(name).slice(0, 40) })),
-    expenses: c.e.map(([id, title, amount, paidBy, among, mode, values, cat, ts]) => ({
+    expenses: c.e.map(([id, title, amount, paidBy, among, mode, values, cat, ts, cur, rate]) => ({
       id: String(id), title: String(title).slice(0, 120), amount: amount | 0, paidBy, among, mode,
       values: values ?? undefined, cat, ts,
+      ...(cur && CURS[cur] && cur !== currency && +rate > 0 ? { cur, rate: +rate } : {}),
     })),
     paid: c.m ?? {},
+    rates: c.r ?? {},
     createdAt: Date.now(),
   };
 }
@@ -152,7 +221,7 @@ function makeDemo() {
     id: uid(), title, amount: amt, paidBy, among, mode, values, cat: detectCat(title), ts,
   });
   return {
-    id: 'demo', name: 'Majówka w Zakopanem', currency: 'zł',
+    id: 'demo', name: 'Majówka w Zakopanem', currency: 'PLN',
     people: [{ id: ola, name: 'Ola' }, { id: bartek, name: 'Bartek' }, { id: kasia, name: 'Kasia' }, { id: michal, name: 'Michał' }],
     expenses: [
       ex('Nocleg — domek pod Giewontem', 72000, ola, all, d(2)),
@@ -162,9 +231,10 @@ function makeDemo() {
       ex('Oscypki z żurawiną', 3600, kasia, [ola, kasia, michal], d(1)),
       ex('Wieczór w Karczmie', 16850, bartek, all, d(1)),
       ex('Bilety na Kasprowy', 33600, ola, all, d(0), 'weights', [2, 2, 1, 1]),
+      Object.assign(ex('Obiad po słowackiej stronie Tatr', 4650, bartek, all, d(0)), { cur: 'EUR', rate: 4.3078 }),
       ex('Kawa i szarlotka', 6400, michal, [michal, kasia], d(0)),
     ],
-    paid: {}, createdAt: Date.now(),
+    paid: {}, rates: { EUR: 4.3078 }, createdAt: Date.now(),
   };
 }
 
@@ -332,7 +402,7 @@ function initLanding() {
     }
     const phs = t('create_name_ph');
     const name = nameInput.value.trim() || phs[phIdx];
-    const currency = document.querySelector('input[name="currency"]:checked')?.value ?? 'zł';
+    const currency = document.querySelector('input[name="currency"]:checked')?.value ?? 'PLN';
     const kitty = {
       id: uid(), name, currency,
       people: newPeople.map((n) => ({ id: uid(), name: n })),
@@ -392,7 +462,7 @@ function renderSavedList() {
   const kitties = Object.values(db.kitties).sort((a, b) => b.createdAt - a.createdAt);
   wrap.hidden = kitties.length === 0;
   box.innerHTML = kitties.map((k) => {
-    const total = k.expenses.reduce((a, e) => a + e.amount, 0);
+    const total = settled(k).reduce((a, e) => a + e.amount, 0);
     return `<li class="saved-item">
       <a href="#/k/${k.id}" class="saved-link">
         <strong class="saved-name">${esc(k.name)}</strong>
@@ -413,6 +483,7 @@ function renderSavedList() {
 /* ───────────────────────── kitty screen ───────────────────────── */
 
 function renderKitty(kitty) {
+  if (SYM2CODE[kitty.currency]) kitty.currency = SYM2CODE[kitty.currency]; // stale in-memory guard
   $app.innerHTML = `
   <div class="k-wrap">
     <header class="k-top">
@@ -444,9 +515,19 @@ function renderKitty(kitty) {
               <input id="qa-title" placeholder="${esc(t('qa_title_ph'))}" maxlength="120" />
             </label>
             <label class="qa-field qa-amount">
-              <span class="lbl">${esc(kitty.currency)}</span>
-              <input id="qa-amount" placeholder="${esc(t('qa_amount_ph'))}" inputmode="decimal" />
+              <span class="lbl">${esc(t('qa_amount_l'))}</span>
+              <span class="money-field">
+                <input id="qa-amount" placeholder="${esc(t('qa_amount_ph'))}" inputmode="decimal" />
+                <select id="qa-cur" aria-label="${esc(t('create_currency_l'))}">${Object.keys(CURS).map((c) => `<option value="${c}" ${c === kitty.currency ? 'selected' : ''}>${CURS[c].sym}</option>`).join('')}</select>
+              </span>
             </label>
+          </div>
+          <div class="rate-row" id="qa-rate-row" hidden>
+            <span class="rate-eq">1&nbsp;<b id="qa-rate-cur"></b>&nbsp;=</span>
+            <input id="qa-rate" class="rate-input" inputmode="decimal" placeholder="0,0000" aria-label="${esc(t('rate_l'))}" />
+            <span>${esc(CURS[kitty.currency].sym)}</span>
+            <button type="button" class="linklike" id="qa-rate-fetch">${esc(t('rate_fetch'))}</button>
+            <span class="rate-approx" id="qa-approx" aria-live="polite"></span>
           </div>
           <div class="qa-extra" id="qa-extra" hidden>
             <fieldset class="qa-among">
@@ -524,6 +605,35 @@ function renderKitty(kitty) {
   };
   qa.date.value = new Date().toISOString().slice(0, 10);
 
+  /* — expense currency & FX rate — */
+  qa.cur = $app.querySelector('#qa-cur');
+  qa.rateRow = $app.querySelector('#qa-rate-row');
+  qa.rate = $app.querySelector('#qa-rate');
+  qa.rateCur = $app.querySelector('#qa-rate-cur');
+  qa.approx = $app.querySelector('#qa-approx');
+  const updateApprox = () => {
+    const a = parseAmount(qa.amount.value), r = parseRate(qa.rate.value);
+    qa.approx.textContent = a && r ? `≈ ${fmtMoney(Math.round(a * r), kitty.currency)}` : '';
+  };
+  const syncCur = () => {
+    const foreign = qa.cur.value !== kitty.currency;
+    qa.rateRow.hidden = !foreign;
+    if (foreign) {
+      qa.rateCur.textContent = CURS[qa.cur.value].sym;
+      if (!qa.rate.value && kitty.rates?.[qa.cur.value]) qa.rate.value = fmtRate(kitty.rates[qa.cur.value]);
+      updateApprox();
+    }
+  };
+  qa.cur.addEventListener('change', () => { qa.rate.value = ''; syncCur(); });
+  qa.rate.addEventListener('input', updateApprox);
+  qa.amount.addEventListener('input', () => { if (!qa.rateRow.hidden) updateApprox(); });
+  $app.querySelector('#qa-rate-fetch').addEventListener('click', async () => {
+    const d = qa.date.value || new Date().toISOString().slice(0, 10);
+    const r = await fetchRate(qa.cur.value, kitty.currency, d);
+    if (r) { qa.rate.value = fmtRate(r.rate); updateApprox(); toast(t('rate_fetched').replace('{d}', r.date)); }
+    else toast(t('rate_fail'));
+  });
+
   qa.more.addEventListener('click', () => {
     const open = qa.extra.hidden;
     qa.extra.hidden = !open;
@@ -570,6 +680,13 @@ function renderKitty(kitty) {
     const amount = parseAmount(qa.amount.value);
     if (!title) { toast(t('qa_err_title')); qa.title.focus(); return; }
     if (amount == null) { toast(t('qa_err_amount')); qa.amount.focus(); return; }
+    const fxCur = qa.cur.value !== kitty.currency ? qa.cur.value : null;
+    let fxRate = null;
+    if (fxCur) {
+      fxRate = parseRate(qa.rate.value);
+      if (!fxRate) { toast(t('rate_need')); qa.rate.focus(); return; }
+      kitty.rates = { ...(kitty.rates ?? {}), [fxCur]: fxRate };
+    }
     const rows = [...qa.amongList.querySelectorAll('.among-item')];
     const among = rows.filter((r) => r.querySelector('input[type=checkbox]').checked)
       .map((r) => r.querySelector('input[type=checkbox]').value);
@@ -588,6 +705,7 @@ function renderKitty(kitty) {
     kitty.expenses.push({
       id: uid(), title, amount, paidBy: qa.payer.value, among, mode, values,
       cat: detectCat(title), ts: qa.date.value || new Date().toISOString().slice(0, 10),
+      ...(fxCur ? { cur: fxCur, rate: fxRate } : {}),
     });
     save();
     qa.title.value = ''; qa.amount.value = '';
@@ -662,38 +780,86 @@ function dayLabel(ts) {
   return d.toLocaleDateString(db.lang === 'pl' ? 'pl-PL' : 'en-GB', { day: 'numeric', month: 'long' });
 }
 
+/* — the receipt: day-grouped timeline, filterable per person — */
+
+let filterPerson = null;
+let filterKittyId = null;
+
 function renderExpenses(kitty) {
   const box = $app.querySelector('#ex-list');
   if (!box) return;
+  if (filterKittyId !== kitty.id) { filterPerson = null; filterKittyId = kitty.id; }
+  if (filterPerson && !kitty.people.some((p) => p.id === filterPerson)) filterPerson = null;
+  const fp = filterPerson;
+
   if (kitty.expenses.length === 0) {
     box.innerHTML = `<p class="empty">${esc(t('ex_empty'))}</p>`;
     return;
   }
-  const sorted = [...kitty.expenses].sort((a, b) => b.ts.localeCompare(a.ts));
+
+  // who-filter chips
+  const chips = `<div class="ex-filter" role="group" aria-label="${esc(t('filter_l'))}">
+    <button class="pfilter ${fp ? '' : 'on'}" data-p="" aria-pressed="${!fp}">${esc(t('filter_all'))}</button>
+    ${kitty.people.map((p) => `<button class="pfilter ${fp === p.id ? 'on' : ''}" data-p="${p.id}" aria-pressed="${fp === p.id}" style="--coin:${coinColor(kitty, p.id)}"><span class="pf-dot" aria-hidden="true"></span>${esc(p.name)}</button>`).join('')}
+  </div>`;
+
+  // per-person summary strip: paid / share / balance
+  let strip = '';
+  if (fp) {
+    const balances = computeBalances(kitty.people, settled(kitty));
+    const paid = settled(kitty).filter((e) => e.paidBy === fp).reduce((a, e) => a + e.amount, 0);
+    const bal = balances.get(fp) ?? 0;
+    const share = paid - bal;
+    const cls = bal > 0 ? 'pos' : bal < 0 ? 'neg' : 'zero';
+    strip = `<div class="pp-strip">
+      ${coin(kitty, fp)}<span class="pp-name">${esc(personName(kitty, fp))}</span>
+      <span class="pp-stat"><i>${esc(t('pp_paid_total'))}</i><b>${fmtMoney(paid, kitty.currency)}</b></span>
+      <span class="pp-stat"><i>${esc(t('pp_share'))}</i><b>${fmtMoney(share, kitty.currency)}</b></span>
+      <span class="pp-stat ${cls}"><i>${esc(t('pp_balance'))}</i><b>${fmtMoney(bal, kitty.currency, true)}</b></span>
+    </div>`;
+  }
+
+  const visible = fp ? kitty.expenses.filter((e) => e.paidBy === fp || e.among.includes(fp)) : kitty.expenses;
+  const sorted = [...visible].sort((a, b) => b.ts.localeCompare(a.ts));
   const groups = [];
   for (const e of sorted) {
     const g = groups[groups.length - 1];
     if (g && g.ts === e.ts) g.items.push(e);
     else groups.push({ ts: e.ts, items: [e] });
   }
-  box.innerHTML = groups.map((g) => `
+
+  const list = sorted.length === 0
+    ? `<p class="empty">${esc(t('pp_none'))}</p>`
+    : groups.map((g) => `
     <div class="ex-day">
       <h3 class="ex-day-h">${esc(dayLabel(g.ts))}</h3>
       ${g.items.map((e) => {
+        const conv = settleExpense(e, kitty);
+        const foreign = e.cur && e.cur !== kitty.currency;
         const allIn = e.among.length === kitty.people.length;
         const forWho = allIn ? t('ex_all') : e.among.map((id) => personName(kitty, id)).join(', ');
-        return `<article class="ex-item" data-id="${e.id}" tabindex="0">
+        const orig = foreign
+          ? ` · <span class="ex-orig">${formatAmount(e.amount, db.lang)}\u00A0${CURS[e.cur].sym} @ ${fmtRate(e.rate)}</span>` : '';
+        const shareTxt = fp && e.among.includes(fp)
+          ? ` · <b class="ex-share">${esc(t('pp_share_inline'))} ${fmtMoney(shareOf(e, kitty, fp), kitty.currency)}</b>` : '';
+        return `<article class="ex-item${fp && e.paidBy === fp ? ' by-fp' : ''}" data-id="${e.id}" tabindex="0">
           <span class="ex-cat" style="--coin:${coinColor(kitty, e.paidBy)}">${CAT_ICONS[e.cat] ?? CAT_ICONS.other}</span>
           <span class="ex-body">
             <span class="ex-title">${esc(e.title)}</span>
-            <span class="ex-meta">${esc(personName(kitty, e.paidBy))} ${esc(t('ex_paid_by'))} · ${esc(t('ex_for'))} ${esc(forWho)}</span>
+            <span class="ex-meta">${esc(personName(kitty, e.paidBy))} ${esc(t('ex_paid_by'))} · ${esc(t('ex_for'))} ${esc(forWho)}${orig}${shareTxt}</span>
           </span>
           <span class="ex-dots" aria-hidden="true"></span>
-          <span class="ex-amount">${fmtMoney(e.amount, kitty.currency)}</span>
+          <span class="ex-amount"${foreign ? ` title="${formatAmount(e.amount, db.lang)}\u00A0${CURS[e.cur].sym}"` : ''}>${fmtMoney(conv.amount, kitty.currency)}</span>
         </article>`;
       }).join('')}
     </div>`).join('');
 
+  box.innerHTML = chips + strip + list;
+
+  box.querySelectorAll('.pfilter').forEach((b) => b.addEventListener('click', () => {
+    filterPerson = b.dataset.p || null;
+    renderExpenses(kitty);
+  }));
   // click / Enter opens the editor
   box.querySelectorAll('.ex-item').forEach((item) => {
     const open = () => openEditor(kitty, item.dataset.id, item);
@@ -715,10 +881,19 @@ function openEditor(kitty, id, itemEl) {
       </label>
       <label class="qa-field"><span class="lbl">${esc(t('qa_what'))}</span>
         <input class="ed-title" value="${esc(e.title)}" maxlength="120" /></label>
-      <label class="qa-field"><span class="lbl">${esc(kitty.currency)}</span>
-        <input class="ed-amount" inputmode="decimal" value="${formatAmount(e.amount, db.lang).replace(/ /g, '')}" /></label>
+      <label class="qa-field"><span class="lbl">${esc(t('qa_amount_l'))}</span>
+        <span class="money-field">
+          <input class="ed-amount" inputmode="decimal" value="${formatAmount(e.amount, db.lang).replace(/\s/g, '')}" />
+          <select class="ed-cur" aria-label="${esc(t('create_currency_l'))}">${Object.keys(CURS).map((c) => `<option value="${c}" ${c === (e.cur ?? kitty.currency) ? 'selected' : ''}>${CURS[c].sym}</option>`).join('')}</select>
+        </span></label>
       <label class="qa-field"><span class="lbl">${esc(t('qa_date'))}</span>
         <input type="date" class="ed-date" value="${e.ts}" /></label>
+    </div>
+    <div class="rate-row ed-rate-row" ${e.cur && e.cur !== kitty.currency ? '' : 'hidden'}>
+      <span class="rate-eq">1&nbsp;<b class="ed-rate-cur">${e.cur ? CURS[e.cur].sym : ''}</b>&nbsp;=</span>
+      <input class="rate-input ed-rate" inputmode="decimal" value="${e.rate ? fmtRate(e.rate) : ''}" aria-label="${esc(t('rate_l'))}" />
+      <span>${CURS[kitty.currency].sym}</span>
+      <button type="button" class="linklike ed-rate-fetch">${esc(t('rate_fetch'))}</button>
     </div>
     <div class="ed-among">${kitty.people.map((p) => `
       <label class="among-item" style="--coin:${coinColor(kitty, p.id)}">
@@ -735,6 +910,22 @@ function openEditor(kitty, id, itemEl) {
   itemEl.after(ed);
 
   ed.querySelector('.ed-cancel').addEventListener('click', () => { ed.remove(); itemEl.classList.remove('editing'); });
+  const edCur = ed.querySelector('.ed-cur');
+  const edRate = ed.querySelector('.ed-rate');
+  const edRateRow = ed.querySelector('.ed-rate-row');
+  edCur.addEventListener('change', () => {
+    const foreign = edCur.value !== kitty.currency;
+    edRateRow.hidden = !foreign;
+    if (foreign) {
+      ed.querySelector('.ed-rate-cur').textContent = CURS[edCur.value].sym;
+      if (!edRate.value && kitty.rates?.[edCur.value]) edRate.value = fmtRate(kitty.rates[edCur.value]);
+    }
+  });
+  ed.querySelector('.ed-rate-fetch').addEventListener('click', async () => {
+    const r = await fetchRate(edCur.value, kitty.currency, ed.querySelector('.ed-date').value || e.ts);
+    if (r) { edRate.value = fmtRate(r.rate); toast(t('rate_fetched').replace('{d}', r.date)); }
+    else toast(t('rate_fail'));
+  });
   ed.querySelector('.ed-del').addEventListener('click', () => {
     const idx = kitty.expenses.findIndex((x) => x.id === id);
     const [removed] = kitty.expenses.splice(idx, 1);
@@ -751,6 +942,13 @@ function openEditor(kitty, id, itemEl) {
     if (!title) { toast(t('qa_err_title')); return; }
     if (amount == null) { toast(t('qa_err_amount')); return; }
     if (among.length === 0) { toast(t('qa_err_among')); return; }
+    const edFxCur = edCur.value !== kitty.currency ? edCur.value : null;
+    let edFxRate = null;
+    if (edFxCur) {
+      edFxRate = parseRate(edRate.value);
+      if (!edFxRate) { toast(t('rate_need')); edRate.focus(); return; }
+      kitty.rates = { ...(kitty.rates ?? {}), [edFxCur]: edFxRate };
+    }
     Object.assign(e, {
       title, amount, among,
       paidBy: ed.querySelector('.ed-payer').value,
@@ -760,6 +958,8 @@ function openEditor(kitty, id, itemEl) {
       mode: among.length === e.among.length && e.mode !== 'equal' ? e.mode : 'equal',
       values: among.length === e.among.length ? e.values : undefined,
     });
+    if (edFxCur) { e.cur = edFxCur; e.rate = edFxRate; }
+    else { delete e.cur; delete e.rate; }
     save(); renderExpenses(kitty); renderSide(kitty);
   });
 }
@@ -784,7 +984,7 @@ function animateNum(el, from, to, format) {
 
 function renderSide(kitty) {
   if (prevKittyId !== kitty.id) { prevNums = new Map(); prevKittyId = kitty.id; }
-  const balances = computeBalances(kitty.people, kitty.expenses);
+  const balances = computeBalances(kitty.people, settled(kitty));
 
   // balances
   const balBox = $app.querySelector('#bal-list');
@@ -840,10 +1040,10 @@ function renderSide(kitty) {
 
   // stats
   const statsBox = $app.querySelector('#stats-card');
-  const total = kitty.expenses.reduce((a, e) => a + e.amount, 0);
+  const total = settled(kitty).reduce((a, e) => a + e.amount, 0);
   const perHead = kitty.people.length ? Math.round(total / kitty.people.length) : 0;
   const byCat = {};
-  kitty.expenses.forEach((e) => { byCat[e.cat] = (byCat[e.cat] ?? 0) + e.amount; });
+  settled(kitty).forEach((e) => { byCat[e.cat] = (byCat[e.cat] ?? 0) + e.amount; });
   const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const maxCat = cats[0]?.[1] ?? 1;
   queueMicrotask(() => {
@@ -869,7 +1069,7 @@ function renderSide(kitty) {
 }
 
 function settlementText(kitty) {
-  const balances = computeBalances(kitty.people, kitty.expenses);
+  const balances = computeBalances(kitty.people, settled(kitty));
   const transfers = settle(balances);
   const lines = [
     `${kitty.name} — ${t('st_h')}`,
