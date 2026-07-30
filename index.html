@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Składka — wspólne wydatki bez rejestracji</title>
+<meta name="description" content="Wyjazd, mieszkanie, prezent — wszystkie wydatki w jednym kotle. Składka liczy, kto komu ile, bez kont i bez rejestracji. Wszystko zostaje w twojej przeglądarce." />
+<meta property="og:title" content="Składka — wspólne wydatki bez rejestracji" />
+<meta property="og:description" content="Jeden kocioł zamiast tysiąca przelewów. Bez kont, bez aplikacji — dane zostają u was." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://antypasat.github.io/skladka/" />
+<meta property="og:image" content="https://antypasat.github.io/skladka/assets/og.png" />
+<meta property="og:locale" content="pl_PL" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://antypasat.github.io/skladka/assets/og.png" />
+<meta name="theme-color" content="#0F1D19" />
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="preload" href="fonts/fraunces-latin.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="fonts/fraunces-latin-ext.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="fonts/schibsted-latin.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="fonts/schibsted-latin-ext.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="stylesheet" href="css/fonts.css" />
+<link rel="stylesheet" href="css/main.css" />
+</head>
+<body>
+
+<!-- ═══════════════ LANDING ═══════════════ -->
+<div id="landing">
+
+  <header class="topbar">
+    <a class="mark" href="#/" aria-label="Składka">
+      <svg class="mark-glyph" viewBox="0 0 32 32" aria-hidden="true">
+        <path class="mg-drop" d="M16 3c3 4.4 5 7 5 9.6a5 5 0 0 1-10 0C11 10 13 7.4 16 3z"/>
+        <path class="mg-pot" d="M6 18c0 6 4.4 9.5 10 9.5S26 24 26 18c-3 1.8-6.3 2.7-10 2.7S9 19.8 6 18z"/>
+      </svg>
+      <span class="mark-name">Sk<span class="gold-l">ł</span>adka</span>
+    </a>
+    <nav class="topnav">
+      <a href="#how" data-i18n="nav_how">Jak to działa</a>
+      <button class="btn btn-gold btn-s" data-goto-create data-i18n="nav_new">Załóż składkę</button>
+      <span class="lang-sw" role="group" aria-label="Język / Language">
+        <button class="lang-btn" data-lang="pl" aria-pressed="true">PL</button><button class="lang-btn" data-lang="en" aria-pressed="false">EN</button>
+      </span>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <canvas id="pot-canvas" aria-hidden="true"></canvas>
+    <div class="hero-fade" aria-hidden="true"></div>
+    <div class="hero-inner">
+      <p class="eyebrow" data-i18n="hero_eyebrow">Wspólne wydatki bez rejestracji</p>
+      <h1 class="wordmark">Sk<span class="gold-l">ł</span>adka</h1>
+      <p class="hero-sub" data-i18n="hero_sub">Wyjazd, mieszkanie, prezent — wszystkie wydatki lądują w jednym kotle. My liczymy, kto komu ile, żebyście wy nie musieli.</p>
+      <div class="hero-ctas">
+        <button class="btn btn-gold btn-l" data-goto-create data-i18n="hero_cta">Załóż składkę</button>
+        <button class="btn btn-ghost btn-l" data-demo data-i18n="hero_demo">Zobacz przykład</button>
+      </div>
+    </div>
+    <p class="hero-foot" data-i18n="hero_foot">Bez kont · bez instalowania · dane zostają u was</p>
+  </section>
+
+  <section class="acts" id="how">
+    <h2 class="acts-h reveal"><span data-i18n="acts_h">Trzy ruchy i po sprawie</span></h2>
+    <svg class="thread" viewBox="0 0 1200 420" preserveAspectRatio="none" aria-hidden="true">
+      <path id="thread-path" d="M-40,60 C160,30 220,190 380,205 C540,220 560,80 730,90 C900,100 930,270 1100,280 C1160,283 1220,260 1260,240" />
+    </svg>
+    <ol class="acts-row">
+      <li class="act reveal">
+        <span class="act-n" aria-hidden="true">I</span>
+        <h3 class="act-t" data-i18n="act1_t">Wrzucacie</h3>
+        <p class="act-d" data-i18n="act1_d">Każdy dorzuca wydatki wtedy, kiedy je robi. Paragon za paragonem, prosto z telefonu.</p>
+        <div class="act-vis act-vis-1" aria-hidden="true">
+          <div class="mini-ex"><span class="mini-dot"></span><span class="mini-t">Zakupy w Biedronce</span><span class="mini-a">187,43</span></div>
+          <div class="mini-ex"><span class="mini-dot d2"></span><span class="mini-t">Paliwo</span><span class="mini-a">214,00</span></div>
+          <div class="mini-ex"><span class="mini-dot d3"></span><span class="mini-t">Obiad na Gubałówce</span><span class="mini-a">256,00</span></div>
+        </div>
+      </li>
+      <li class="act reveal">
+        <span class="act-n" aria-hidden="true">II</span>
+        <h3 class="act-t" data-i18n="act2_t">Widzicie</h3>
+        <p class="act-d" data-i18n="act2_d">Bilans liczy się sam, co do grosza. Od razu widać, kto jest na plusie, a kto korzystał z życia.</p>
+        <div class="act-vis act-vis-2" aria-hidden="true">
+          <div class="mini-bal"><span class="mini-n">Ola</span><span class="mini-track"><span class="mini-bar pos" style="--w:82%"></span></span><span class="mini-v pos">+412,29</span></div>
+          <div class="mini-bal"><span class="mini-n">Bartek</span><span class="mini-track"><span class="mini-bar pos" style="--w:18%"></span></span><span class="mini-v pos">+89,88</span></div>
+          <div class="mini-bal"><span class="mini-n">Kasia</span><span class="mini-track"><span class="mini-bar neg" style="--w:44%"></span></span><span class="mini-v neg">−218,04</span></div>
+        </div>
+      </li>
+      <li class="act reveal">
+        <span class="act-n" aria-hidden="true">III</span>
+        <h3 class="act-t" data-i18n="act3_t">Rozliczacie się</h3>
+        <p class="act-d" data-i18n="act3_d">Najmniejsza możliwa liczba przelewów. Zamiast dziesięciu „oddam ci potem” — jeden przelew i spokój.</p>
+        <div class="act-vis act-vis-3" aria-hidden="true">
+          <div class="mini-st">
+            <span class="mini-coin c1">K</span>
+            <svg class="mini-arrow" viewBox="0 0 60 12"><path d="M2 6 H50 M44 1.5 L52 6 L44 10.5"/></svg>
+            <span class="mini-coin c2">O</span>
+            <span class="mini-sum">218,04 zł</span>
+          </div>
+          <p class="mini-peace">✓&nbsp;<span data-i18n="st_empty">Wszystko wyrównane. Piękna rzecz.</span></p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <div class="pour" aria-hidden="true">
+    <svg viewBox="0 0 1440 90" preserveAspectRatio="none">
+      <path class="pour-fill" d="M0,90 L0,55 C240,25 480,70 720,48 C960,26 1200,60 1440,38 L1440,90 Z"/>
+      <path class="pour-line" d="M0,55 C240,25 480,70 720,48 C960,26 1200,60 1440,38" />
+    </svg>
+  </div>
+
+  <section class="daylight">
+    <div class="create-wrap" id="create">
+      <form class="create card reveal" id="create-form">
+        <h2 class="create-h" data-i18n="create_h">Nowa składka</h2>
+        <label class="field">
+          <span class="lbl" data-i18n="create_name_l">Na co się składacie?</span>
+          <input id="create-name" class="input-big" maxlength="80" placeholder="Majówka w Zakopanem" autocomplete="off" />
+        </label>
+        <div class="field">
+          <label class="lbl" for="create-people" data-i18n="create_people_l">Kto się składa?</label>
+          <div class="chips-box">
+            <span id="people-chips"></span>
+            <input id="create-people" data-i18n-ph="create_people_ph" placeholder="Wpisz imię i naciśnij Enter…" maxlength="40" autocomplete="off" />
+          </div>
+          <p class="hint" data-i18n="create_people_hint">Minimum dwie osoby. Możesz wkleić całą listę po przecinku.</p>
+        </div>
+        <div class="create-foot">
+          <fieldset class="cur">
+            <legend class="lbl" data-i18n="create_currency_l">Waluta</legend>
+            <div class="seg">
+              <label class="seg-opt"><input type="radio" name="currency" value="zł" checked /><span>zł</span></label>
+              <label class="seg-opt"><input type="radio" name="currency" value="€" /><span>€</span></label>
+              <label class="seg-opt"><input type="radio" name="currency" value="$" /><span>$</span></label>
+              <label class="seg-opt"><input type="radio" name="currency" value="£" /><span>£</span></label>
+            </div>
+          </fieldset>
+          <button type="submit" class="btn btn-gold btn-l" data-i18n="create_go">Otwórz kocioł</button>
+        </div>
+      </form>
+
+      <section id="saved" hidden>
+        <h2 class="saved-h" data-i18n="saved_h">Wasze składki</h2>
+        <ul id="saved-list" class="saved-list"></ul>
+      </section>
+    </div>
+
+    <footer class="foot">
+      <svg class="foot-glyph" viewBox="0 0 32 32" aria-hidden="true">
+        <path class="mg-drop" d="M16 3c3 4.4 5 7 5 9.6a5 5 0 0 1-10 0C11 10 13 7.4 16 3z"/>
+        <path class="mg-pot" d="M6 18c0 6 4.4 9.5 10 9.5S26 24 26 18c-3 1.8-6.3 2.7-10 2.7S9 19.8 6 18z"/>
+      </svg>
+      <p class="foot-privacy" data-i18n="foot_privacy">Wszystko liczy się w twojej przeglądarce. Nic nie wysyłamy na żaden serwer — link do składki jest jej jedyną kopią poza tym urządzeniem.</p>
+      <p class="foot-credit"><span data-i18n="foot_credit">Zaprojektowane i zbudowane w całości przez Claude (Fable).</span>
+        <a href="https://github.com/antypasat/skladka" rel="noopener" data-i18n="foot_code">Kod źródłowy</a></p>
+    </footer>
+  </section>
+</div>
+
+<!-- ═══════════════ APP (kitty view) ═══════════════ -->
+<main id="app" hidden></main>
+
+<noscript><p style="padding:2rem;text-align:center;font-family:sans-serif">Składka potrzebuje JavaScriptu. / Składka needs JavaScript.</p></noscript>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
